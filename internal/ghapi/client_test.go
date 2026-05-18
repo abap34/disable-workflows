@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"sync"
 	"testing"
@@ -84,6 +85,59 @@ func TestListWorkflowsUsesFreshCacheWithoutRequest(t *testing.T) {
 	}
 	if client.CacheHits() != 1 {
 		t.Fatalf("expected 1 cache hit, got %d", client.CacheHits())
+	}
+}
+
+func TestNotModifiedRefreshesCacheFreshness(t *testing.T) {
+	t.Parallel()
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if got := r.Header.Get("If-None-Match"); got != `"v1"` {
+			t.Fatalf("expected conditional request, got If-None-Match %q", got)
+		}
+		w.Header().Set("ETag", `"v1"`)
+		w.WriteHeader(http.StatusNotModified)
+	}))
+	defer server.Close()
+
+	cache := NewCache(t.TempDir())
+	client := NewClient("token",
+		WithBaseURL(server.URL),
+		WithCache(cache),
+		WithMinRequestInterval(0),
+		WithCacheMaxAge(time.Hour),
+	)
+	fullURL, err := client.fullURL("/repos/acme/widgets/actions/workflows", url.Values{"per_page": {"100"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.Put(client.cacheKey(http.MethodGet, fullURL), cacheEntry{
+		ETag:       `"v1"`,
+		StatusCode: http.StatusOK,
+		Header:     httpHeader{},
+		Body:       []byte(`{"total_count":1,"workflows":[{"id":1,"name":"CI","path":".github/workflows/ci.yml","state":"active","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"}]}`),
+		FetchedAt:  time.Now().Add(-2 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := client.ListWorkflows(context.Background(), "acme/widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.ListWorkflows(context.Background(), "acme/widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 1 || len(second) != 1 {
+		t.Fatalf("unexpected workflows: %#v %#v", first, second)
+	}
+	if requests != 1 {
+		t.Fatalf("expected only one validation request, got %d", requests)
+	}
+	if client.CacheHits() != 2 {
+		t.Fatalf("expected 2 cache hits, got %d", client.CacheHits())
 	}
 }
 

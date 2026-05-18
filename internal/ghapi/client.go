@@ -607,6 +607,11 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		c.recordResponse(resp)
 
 		if resp.StatusCode == http.StatusNotModified && cached != nil {
+			cached.FetchedAt = time.Now()
+			if etag := resp.Header.Get("ETag"); etag != "" {
+				cached.ETag = etag
+			}
+			_ = c.cache.Put(cacheKey, *cached)
 			c.recordCacheHit()
 			return cached.Body, http.Header(cached.Header), nil
 		}
