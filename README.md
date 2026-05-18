@@ -88,3 +88,7 @@ disable-workflows --owner my-org --cache-max-age=5m
 disable-workflows --owner my-org --cache-max-age=0
 disable-workflows --owner my-org --min-request-interval=500ms
 ```
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
