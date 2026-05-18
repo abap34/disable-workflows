@@ -29,7 +29,7 @@ func main() {
 	flag.StringVar(&cfg.RepoFilter, "repo", "", "case-insensitive substring filter for repository full name")
 	flag.BoolVar(&cfg.IncludeArchived, "include-archived", false, "include archived repositories")
 	flag.IntVar(&cfg.MaxRepos, "max-repos", 0, "maximum repositories to scan; 0 means no explicit limit")
-	flag.IntVar(&cfg.Concurrency, "concurrency", 2, "number of repositories to inspect concurrently")
+	flag.IntVar(&cfg.Concurrency, "concurrency", 6, "number of repositories to inspect concurrently")
 	flag.StringVar(&cfg.LastRunMode, "last-run", ghapi.LastRunWorkflow, "last run lookup mode: workflow (exact), repo (fast approximate), or off")
 	flag.StringVar(&tokenEnv, "token-env", "GH_TOKEN", "environment variable containing the GitHub token; GITHUB_TOKEN is also checked")
 	flag.StringVar(&cacheDir, "cache-dir", defaultCacheDir(), "directory for conditional request cache")
