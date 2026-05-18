@@ -1,6 +1,10 @@
 # disable-workflows
 
-A terminal UI for finding GitHub Actions workflows across repositories and disabling selected workflows.
+A terminal UI for finding GitHub Actions workflows across repositories and disabling them in bulk.
+
+<div align="center">
+<img src="assets/demo.png" width="800">
+</div>
 
 ## Quick Usage
 
@@ -22,16 +26,9 @@ disable-workflows --owner my-org
 go install github.com/abap34/disable-workflows@latest
 ```
 
-The binary is installed under `$GOBIN` or `$GOPATH/bin`. Make sure that directory is in your `PATH`.
-
 ## Authentication
 
-If you already use GitHub CLI, no extra token setup is usually needed:
-
-```sh
-gh auth status
-disable-workflows
-```
+If you already use GitHub CLI, no extra token setup is usually needed.
 
 Token lookup order:
 
@@ -48,7 +45,7 @@ For fine-grained tokens, grant repository read access and Actions write access f
 - `space` or `enter`: select an active workflow
 - `a`: select all visible active workflows
 - `u`: clear selection
-- `/`: filter
+- `/`: filter (`repo:api`, `workflow:deploy`, `path:ci.yml`, `state:active`, `all:release`)
 - `1`-`7`: sort by visible table columns; press the same number again to flip order
 - `[` / `]`: cycle sort column
 - `o`: flip sort order
@@ -70,25 +67,9 @@ disable-workflows --owner my-org --concurrency 1
 disable-workflows --owner my-org --include-archived
 ```
 
-Last-run lookup:
+`--help` for all options.
 
-```sh
-disable-workflows --owner my-org --last-run=workflow
-disable-workflows --owner my-org --last-run=repo
-disable-workflows --owner my-org --last-run=off
-```
+## Note
 
-`workflow` is the default and asks GitHub for the latest run of each workflow.
-`repo` is faster, but approximate: it only inspects the repository's most recent workflow runs.
-
-Cache and request pacing:
-
-```sh
-disable-workflows --owner my-org --cache-max-age=5m
-disable-workflows --owner my-org --cache-max-age=0
-disable-workflows --owner my-org --min-request-interval=500ms
-```
-
-## License
-
-MIT License. See [LICENSE](LICENSE).
+- API usage is roughly proportional to the number of repositories and workflows scanned. By default, expect about `repo_count + workflow_count` requests, plus a small number of paginated owner/repository listing requests. Authenticated GitHub API requests usually allow around 5000 requests per hour, so be mindful of rate limits for large owners.
+- For repeated use, disable-workflows caches workflow data for `--cache-max-age` (default 5 min) to speed up subsequent runs. Use `--no-cache` or set `--cache-max-age=0` to update cached data from GitHub every time.
