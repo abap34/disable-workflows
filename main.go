@@ -77,9 +77,13 @@ func main() {
 
 	model := tui.NewModel(context.Background(), client, cfg)
 	program := tea.NewProgram(model, tea.WithAltScreen())
-	if _, err := program.Run(); err != nil {
+	finalModel, err := program.Run()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "tui failed: %v\n", err)
 		os.Exit(1)
+	}
+	if model, ok := finalModel.(tui.Model); ok {
+		fmt.Fprintln(os.Stderr, model.ExitStats())
 	}
 }
 

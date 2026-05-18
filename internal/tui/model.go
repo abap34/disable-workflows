@@ -389,7 +389,7 @@ func (m Model) loadingProgressView() string {
 	b.WriteString(activeStyle.Render(phase))
 	b.WriteString("\n")
 	if progress.ReposTotal > 0 {
-		b.WriteString(progressBar(progress.ReposDone, progress.ReposTotal, m.width-8))
+		b.WriteString(asciiProgressBar(progress.ReposDone, progress.ReposTotal, m.contentWidth()-2))
 		b.WriteString("\n")
 		b.WriteString(fmt.Sprintf("%d / %d repositories scanned  workflows: %d  errors: %d",
 			progress.ReposDone,
@@ -438,20 +438,20 @@ func (m Model) readyView() string {
 	} else if m.filter != "" {
 		b.WriteString(activeStyle.Render("filter: " + m.filter))
 	} else {
-		b.WriteString(dimStyle.Render("filter: / to search"))
+		b.WriteString(dimStyle.Render("filter: / to search; repo: workflow: path: state:"))
 	}
 	b.WriteString("\n\n")
 	b.WriteString(m.tableView())
 	b.WriteString("\n")
 	if m.status != "" {
-		b.WriteString(dimStyle.Render(m.status))
+		b.WriteString(statusStyle.Width(m.contentWidth()).Render(m.status))
 		b.WriteString("\n")
 	}
 	if len(m.repoErrors) > 0 {
-		b.WriteString(errorStyle.Render(m.repoErrorSummary()))
+		b.WriteString(errorStyle.Width(m.contentWidth()).Render(m.repoErrorSummary()))
 		b.WriteString("\n")
 	}
-	b.WriteString(helpStyle.Render("up/down move  space select  a select-visible  u clear  / filter  1-7 sort  [/] sort  o order  d disable  r refresh  q quit"))
+	b.WriteString(helpStyle.Width(m.contentWidth()).Render("up/down move  space select  a select-visible  u clear  / filter  1-7 sort  [/] sort  o order  d disable  r refresh  q quit"))
 	return m.frame(b.String())
 }
 
@@ -460,7 +460,7 @@ func (m Model) confirmView() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Confirm Disable"))
 	b.WriteString("\n")
-	b.WriteString(errorStyle.Render(fmt.Sprintf("This will disable %d selected workflows.", len(queue))))
+	b.WriteString(errorStyle.Bold(true).Render(fmt.Sprintf("This will disable %d selected workflows.", len(queue))))
 	b.WriteString("\n\n")
 	for i, item := range queue {
 		if i >= 10 {
@@ -473,8 +473,7 @@ func (m Model) confirmView() string {
 	b.WriteString("\nType ")
 	b.WriteString(activeStyle.Render("disable"))
 	b.WriteString(" and press enter, or esc to cancel.\n")
-	b.WriteString("> ")
-	b.WriteString(m.confirmInput)
+	b.WriteString(inputStyle.Width(m.contentWidth()).Render("> " + m.confirmInput))
 	return m.frame(b.String())
 }
 
@@ -486,8 +485,10 @@ func (m Model) disablingView() string {
 		item := m.disableQueue[m.disableIndex]
 		current = fmt.Sprintf("\nCurrent: %s / %s", item.Repo.FullName, item.Workflow.Name)
 	}
-	return m.frame(fmt.Sprintf("%s\n\n%d / %d complete%s\n\n%s",
+	bar := progressBar(done, total, m.contentWidth()-2)
+	return m.frame(fmt.Sprintf("%s\n\n%s\n%d / %d complete%s\n\n%s",
 		titleStyle.Render("Disabling workflows"),
+		bar,
 		done,
 		total,
 		current,
@@ -522,18 +523,18 @@ func (m Model) tableView() string {
 	for rowPos, idx := range visible[m.offset:end] {
 		item := m.items[idx]
 		cursor := m.offset+rowPos == m.cursor
-		line := m.renderRow(item, widths, cursor)
+		line := m.renderRow(item, widths, cursor, rowPos)
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
 	if end < len(visible) {
-		b.WriteString(dimStyle.Render(fmt.Sprintf("... %d more", len(visible)-end)))
+		b.WriteString(moreStyle.Width(m.tableWidth()).Render(fmt.Sprintf("... %d more", len(visible)-end)))
 		b.WriteString("\n")
 	}
 	return b.String()
 }
 
-func (m Model) renderRow(item ghapi.WorkflowItem, widths colWidths, cursor bool) string {
+func (m Model) renderRow(item ghapi.WorkflowItem, widths colWidths, cursor bool, rowPos int) string {
 	selected := "[ ]"
 	if m.selected[item.Key()] {
 		selected = "[x]"
@@ -542,6 +543,7 @@ func (m Model) renderRow(item ghapi.WorkflowItem, widths colWidths, cursor bool)
 		selected = " - "
 	}
 	visibility := visibilityLabel(item.Repo.Private)
+	state := stateLabel(item)
 	updated := "-"
 	if !item.Workflow.UpdatedAt.IsZero() {
 		updated = item.Workflow.UpdatedAt.Local().Format("2006-01-02")
@@ -555,29 +557,29 @@ func (m Model) renderRow(item ghapi.WorkflowItem, widths colWidths, cursor bool)
 		}
 	}
 	values := []string{
-		fit(selected, widths.selectCol),
-		fit(item.Workflow.State, widths.state),
-		fit(visibility, widths.visibility),
+		styleSelected(selected, m.selected[item.Key()]).Render(fit(selected, widths.selectCol)),
+		stateStyle(item).Render(fit(state, widths.state)),
+		visibilityStyle(item.Repo.Private).Render(fit(visibility, widths.visibility)),
 		fit(item.Repo.FullName, widths.repo),
 		fit(item.Workflow.Name, widths.workflow),
 	}
 	if widths.lastRun > 0 {
-		values = append(values, fit(lastRun, widths.lastRun))
+		values = append(values, dimStyle.Render(fit(lastRun, widths.lastRun)))
 	}
-	values = append(values, fit(updated, widths.updated))
+	values = append(values, dimStyle.Render(fit(updated, widths.updated)))
 	if widths.path > 0 {
-		values = append(values, fit(item.Workflow.Path, widths.path))
+		values = append(values, subtleStyle.Render(fit(item.Workflow.Path, widths.path)))
 	}
 	line := strings.Join(values, " ")
 	switch {
 	case cursor:
-		return cursorStyle.Render(line)
+		return cursorStyle.Width(m.tableWidth()).Render(plainRow(item, widths, m.selected[item.Key()]))
 	case !item.CanDisable():
-		return dimStyle.Render(line)
-	case item.Workflow.State == "active":
-		return line
+		return disabledRowStyle.Width(m.tableWidth()).Render(line)
+	case rowPos%2 == 1:
+		return zebraStyle.Width(m.tableWidth()).Render(line)
 	default:
-		return dimStyle.Render(line)
+		return rowStyle.Width(m.tableWidth()).Render(line)
 	}
 }
 
@@ -636,8 +638,84 @@ func (m Model) repoErrorSummary() string {
 	return fmt.Sprintf("repo errors: %d; first: %s: %s", len(m.repoErrors), first.Repo.FullName, first.Error)
 }
 
+func (m Model) ExitStats() string {
+	rate := m.rate
+	requests := m.requests
+	cacheHits := m.cacheHits
+	if m.client != nil {
+		rate = m.client.Rate()
+		requests = m.client.Requests()
+		cacheHits = m.client.CacheHits()
+	}
+
+	var b strings.Builder
+	b.WriteString("Stats\n")
+	b.WriteString(fmt.Sprintf("owner: %s\n", m.cfg.Owner))
+	b.WriteString(fmt.Sprintf("repositories: %d\n", len(m.repos)))
+	b.WriteString(fmt.Sprintf("workflows: %d\n", len(m.items)))
+	b.WriteString(fmt.Sprintf("api requests: %d\n", requests))
+	b.WriteString(fmt.Sprintf("cache hits: %d\n", cacheHits))
+	if rate.Limit > 0 {
+		reset := "-"
+		if !rate.Reset.IsZero() {
+			reset = rate.Reset.Local().Format("15:04:05")
+		}
+		b.WriteString(fmt.Sprintf("rate limit: %d/%d remaining, used %d, reset %s\n",
+			rate.Remaining,
+			rate.Limit,
+			rate.Used,
+			reset,
+		))
+	}
+	if len(m.disableResults) > 0 {
+		ok, failed := 0, 0
+		for _, result := range m.disableResults {
+			if result.err != nil {
+				failed++
+			} else {
+				ok++
+			}
+		}
+		b.WriteString(fmt.Sprintf("disabled: %d succeeded, %d failed\n", ok, failed))
+	}
+	if len(m.repoErrors) > 0 {
+		b.WriteString(fmt.Sprintf("repo errors: %d\n", len(m.repoErrors)))
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 func (m Model) frame(s string) string {
-	return lipgloss.NewStyle().Width(m.width).Height(m.height).Render(s)
+	if m.width < 24 || m.height < 8 {
+		return lipgloss.NewStyle().Width(m.width).Height(m.height).Render(s)
+	}
+	return frameStyle.
+		Width(m.contentWidth()).
+		Height(m.contentHeight()).
+		Render(s)
+}
+
+func (m Model) contentWidth() int {
+	width := m.width - 6
+	if width < 1 {
+		return 1
+	}
+	return width
+}
+
+func (m Model) contentHeight() int {
+	height := m.height - 4
+	if height < 1 {
+		return 1
+	}
+	return height
+}
+
+func (m Model) tableWidth() int {
+	width := m.contentWidth()
+	if width < 34 {
+		return 34
+	}
+	return width
 }
 
 func (m *Model) clampCursor() {
@@ -669,13 +747,14 @@ func (m *Model) clampCursor() {
 }
 
 func (m Model) tableHeight() int {
-	height := m.height - 10
+	fixedLines := 10
 	if m.status != "" {
-		height--
+		fixedLines++
 	}
 	if len(m.repoErrors) > 0 {
-		height--
+		fixedLines++
 	}
+	height := m.contentHeight() - fixedLines
 	if height < 3 {
 		return 3
 	}
@@ -683,10 +762,10 @@ func (m Model) tableHeight() int {
 }
 
 func (m Model) visibleIndexes() []int {
-	filter := strings.ToLower(strings.TrimSpace(m.filter))
+	filter := parseWorkflowFilter(m.filter)
 	indexes := make([]int, 0, len(m.items))
 	for i, item := range m.items {
-		if filter == "" || itemMatches(item, filter) {
+		if filter.empty() || itemMatches(item, filter) {
 			indexes = append(indexes, i)
 		}
 	}
@@ -742,14 +821,144 @@ func compareTime(a, b time.Time) int {
 	}
 }
 
-func itemMatches(item ghapi.WorkflowItem, filter string) bool {
-	haystack := strings.ToLower(strings.Join([]string{
-		item.Repo.FullName,
-		item.Workflow.Name,
-		item.Workflow.Path,
-		item.Workflow.State,
-	}, " "))
-	return strings.Contains(haystack, filter)
+type workflowFilter struct {
+	terms []filterTerm
+}
+
+type filterTerm struct {
+	key   string
+	value string
+}
+
+func parseWorkflowFilter(input string) workflowFilter {
+	input = strings.ToLower(strings.TrimSpace(input))
+	if input == "" {
+		return workflowFilter{}
+	}
+	parts := strings.Fields(input)
+	terms := make([]filterTerm, 0, len(parts))
+	for _, part := range parts {
+		key, value, ok := splitFilterTerm(part)
+		if !ok {
+			terms = append(terms, filterTerm{key: "workflow", value: part})
+			continue
+		}
+		if value == "" {
+			continue
+		}
+		terms = append(terms, filterTerm{key: key, value: value})
+	}
+	return workflowFilter{terms: terms}
+}
+
+func (f workflowFilter) empty() bool {
+	return len(f.terms) == 0
+}
+
+func splitFilterTerm(part string) (string, string, bool) {
+	rawKey, value, ok := strings.Cut(part, ":")
+	if !ok {
+		return "", "", false
+	}
+	key, ok := normalizeFilterKey(rawKey)
+	if !ok {
+		return "", "", false
+	}
+	return key, value, true
+}
+
+func normalizeFilterKey(key string) (string, bool) {
+	switch key {
+	case "repo", "repository", "r":
+		return "repo", true
+	case "workflow", "wf", "name", "ci":
+		return "workflow", true
+	case "path", "file", "p":
+		return "path", true
+	case "state", "status", "s":
+		return "state", true
+	case "vis", "visibility", "v":
+		return "visibility", true
+	case "last", "last-run", "lastrun":
+		return "last", true
+	case "updated", "update", "u":
+		return "updated", true
+	case "all", "any", "*":
+		return "all", true
+	default:
+		return "", false
+	}
+}
+
+func itemMatches(item ghapi.WorkflowItem, filter workflowFilter) bool {
+	for _, term := range filter.terms {
+		if !filterTermMatches(item, term) {
+			return false
+		}
+	}
+	return true
+}
+
+func filterTermMatches(item ghapi.WorkflowItem, term filterTerm) bool {
+	for _, value := range filterValues(item, term.key) {
+		if strings.Contains(strings.ToLower(value), term.value) {
+			return true
+		}
+	}
+	return false
+}
+
+func filterValues(item ghapi.WorkflowItem, key string) []string {
+	switch key {
+	case "repo":
+		return []string{item.Repo.FullName, item.Repo.Name, item.Repo.Owner.Login}
+	case "workflow":
+		return []string{item.Workflow.Name}
+	case "path":
+		return []string{item.Workflow.Path}
+	case "state":
+		return []string{item.Workflow.State, stateLabel(item)}
+	case "visibility":
+		if item.Repo.Private {
+			return []string{"private", "pri"}
+		}
+		return []string{"public", "pub"}
+	case "last":
+		return filterTimeValues(item.LastRunAt)
+	case "updated":
+		return filterTimeValues(item.Workflow.UpdatedAt)
+	default:
+		values := []string{
+			item.Repo.FullName,
+			item.Repo.Name,
+			item.Repo.Owner.Login,
+			item.Workflow.Name,
+			item.Workflow.Path,
+			item.Workflow.State,
+			stateLabel(item),
+			visibilityLabel(item.Repo.Private),
+		}
+		if item.Repo.Private {
+			values = append(values, "private")
+		} else {
+			values = append(values, "public")
+		}
+		values = append(values, filterTimeValues(item.LastRunAt)...)
+		values = append(values, filterTimeValues(item.Workflow.UpdatedAt)...)
+		return values
+	}
+}
+
+func filterTimeValues(t time.Time) []string {
+	if t.IsZero() {
+		return []string{"-"}
+	}
+	local := t.Local()
+	return []string{
+		local.Format("2006-01-02"),
+		local.Format("2006-01-02 15:04"),
+		local.Format("2006/01/02"),
+	}
 }
 
 func (m Model) selectedItems() []ghapi.WorkflowItem {
@@ -940,10 +1149,7 @@ type colWidths struct {
 }
 
 func (m Model) columnWidths() colWidths {
-	total := m.width - 1
-	if total < 34 {
-		total = 34
-	}
+	total := m.tableWidth()
 	widths := colWidths{
 		selectCol:  3,
 		state:      17,
@@ -995,14 +1201,68 @@ func (m Model) headerRow(widths colWidths) string {
 	if widths.path > 0 {
 		values = append(values, fit(m.sortHeader("Path", sortPath, widths.path), widths.path))
 	}
-	return headerStyle.Render(strings.Join(values, " "))
+	return headerStyle.Width(m.tableWidth()).Render(strings.Join(values, " "))
 }
 
 func visibilityLabel(private bool) string {
 	if private {
-		return "prv"
+		return "pri"
 	}
 	return "pub"
+}
+
+func stateLabel(item ghapi.WorkflowItem) string {
+	switch {
+	case item.Repo.Archived:
+		return "archived"
+	case item.Repo.Disabled:
+		return "repo disabled"
+	case item.Workflow.State == "active":
+		return "active"
+	case item.Workflow.State == "disabled_manually":
+		return "disabled"
+	case item.Workflow.State == "":
+		return "-"
+	default:
+		return item.Workflow.State
+	}
+}
+
+func plainRow(item ghapi.WorkflowItem, widths colWidths, isSelected bool) string {
+	selected := "[ ]"
+	if item.CanDisable() && isSelected {
+		selected = "[x]"
+	}
+	if !item.CanDisable() {
+		selected = " - "
+	}
+	updated := "-"
+	if !item.Workflow.UpdatedAt.IsZero() {
+		updated = item.Workflow.UpdatedAt.Local().Format("2006-01-02")
+	}
+	lastRun := "-"
+	if !item.LastRunAt.IsZero() {
+		if widths.lastRun <= 10 {
+			lastRun = item.LastRunAt.Local().Format("2006-01-02")
+		} else {
+			lastRun = item.LastRunAt.Local().Format("2006-01-02 15:04")
+		}
+	}
+	values := []string{
+		fit(selected, widths.selectCol),
+		fit(stateLabel(item), widths.state),
+		fit(visibilityLabel(item.Repo.Private), widths.visibility),
+		fit(item.Repo.FullName, widths.repo),
+		fit(item.Workflow.Name, widths.workflow),
+	}
+	if widths.lastRun > 0 {
+		values = append(values, fit(lastRun, widths.lastRun))
+	}
+	values = append(values, fit(updated, widths.updated))
+	if widths.path > 0 {
+		values = append(values, fit(item.Workflow.Path, widths.path))
+	}
+	return strings.Join(values, " ")
 }
 
 func (m Model) sortHeader(label string, key sortKey, width int) string {
@@ -1059,15 +1319,97 @@ func progressBar(done, total, maxWidth int) string {
 	if filled > width {
 		filled = width
 	}
+	return "[" + progressFilledStyle.Render(strings.Repeat("=", filled)) + progressEmptyStyle.Render(strings.Repeat("-", width-filled)) + "]"
+}
+
+func asciiProgressBar(done, total, maxWidth int) string {
+	if total <= 0 {
+		return ""
+	}
+	width := maxWidth
+	if width > 48 {
+		width = 48
+	}
+	if width < 12 {
+		width = 12
+	}
+	if done < 0 {
+		done = 0
+	}
+	if done > total {
+		done = total
+	}
+	filled := done * width / total
+	if filled > width {
+		filled = width
+	}
 	return "[" + strings.Repeat("#", filled) + strings.Repeat("-", width-filled) + "]"
 }
 
+func styleSelected(selected string, isSelected bool) lipgloss.Style {
+	if selected == " - " {
+		return dimStyle
+	}
+	if isSelected {
+		return selectedMetricStyle.Bold(true)
+	}
+	return subtleStyle
+}
+
+func stateStyle(item ghapi.WorkflowItem) lipgloss.Style {
+	switch {
+	case item.CanDisable():
+		return activeStyle
+	case item.Repo.Archived || item.Repo.Disabled || item.Workflow.State == "disabled_manually":
+		return dimStyle
+	default:
+		return warningStyle
+	}
+}
+
+func visibilityStyle(private bool) lipgloss.Style {
+	if private {
+		return warningStyle
+	}
+	return subtleStyle
+}
+
 var (
-	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
-	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245"))
-	cursorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(lipgloss.Color("62"))
-	activeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
-	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	helpStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	frameStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("238")).
+			Padding(1, 2)
+	titleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("39"))
+	headerStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("255")).
+			Background(lipgloss.Color("236"))
+	rowStyle   = lipgloss.NewStyle()
+	zebraStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("235"))
+	disabledRowStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("244"))
+	cursorStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("230")).
+			Background(lipgloss.Color("62")).
+			Bold(true)
+	statusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("250")).
+			Background(lipgloss.Color("235"))
+	moreStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("244"))
+	inputStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("255")).
+			Background(lipgloss.Color("235"))
+	activeStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	selectedMetricStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+	warningStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	subtleStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("247"))
+	dimStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	errorStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	helpStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	progressFilledStyle = lipgloss.NewStyle().Background(lipgloss.Color("42"))
+	progressEmptyStyle  = lipgloss.NewStyle().Background(lipgloss.Color("236"))
 )
